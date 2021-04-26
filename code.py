@@ -1,8 +1,10 @@
 ########################################
 # setting
-timeout_bound = 1
-overload_judge_threshold = 3
-overload_bound = 5
+timeout_bound = 1 # 1～
+overload_judge_threshold = 3 # 1～
+overload_bound = 5 # 0～
+adress_type = "server adress" # server adress, subnet
+output_type = "overload" # failure, overload
 #--------------------------------------#
 
 
@@ -13,7 +15,9 @@ from datetime import datetime as dt
 
 
 ########################################
-# input
+# sub definition
+
+## 入力
 def input_log() : 
     log_list = []
     log_append = log_list.append
@@ -23,31 +27,35 @@ def input_log() :
         except EOFError : 
             break
     return log_list
-#--------------------------------------#
 
 
-########################################
-# preliminary
+## ログファイルの整理
 def arrange_log_list(log_list) : 
-    server_adress_diclist = {}
-    subnet_diclist = {}
+    server_adress_diclist, subnet_diclist = {}, {}
     
     for log in log_list : 
-        date, server_adress, response_time = log  
+        date, server_adress, response = log  
+        
+        ### subnetの取得
         subnet = ".".join(server_adress.split(".")[:3])
+        
+        ### dateを文字列から日付情報へ変換
         date = date[:4] + "-" + date[4:6] + "-" + date[6:8] + " " + date[8:10] + ":" + date[10:12] + ":" + date[12:]
         date = dt.strptime(date, "%Y-%m-%d %H:%M:%S")
+        
+        ### server_adressをkeyとした辞書型リストの作成
         if server_adress_diclist.setdefault(server_adress) == None : 
             server_adress_diclist[server_adress] = []
         else : 
-            server_adress_diclist[server_adress].append([date, response_time])
-            
+            server_adress_diclist[server_adress].append([date, response])
+
+        ### subnetをkeyとした辞書型リストの作成   
         if subnet_diclist.setdefault(subnet) == None : 
             subnet_diclist[subnet] = []
         else : 
-            subnet_diclist[subnet].append([date, response_time])
+            subnet_diclist[subnet].append([date, response])
 
-    # confirm            
+    ## 整理されたリストの確認            
     # for key in server_adress_diclist : 
     #     print(key)
     #     for server_adress in server_adress_diclist[key] : 
@@ -56,34 +64,50 @@ def arrange_log_list(log_list) :
     
     return [server_adress_diclist, subnet_diclist]
     
-def deal_server(adress_type, server_adress_diclist) : 
-    failure_diclist = {}
+    
+## 過負荷の判定
+def deal_overload(adress_type, output_type, adress_diclist) : 
     overload_diclist = {}
-    for server_name in server_adress_diclist : 
-        failure_flag = False
-        overload_flag = False
-        timeout_count = 0
-        processing_count = 0
-        failure_list = []
-        overload_list = []
-        
-        ### sever name の query listを取り出す
-        server_query_list = server_adress_diclist[server_name]
-        for date, response in server_query_list : 
+    for adress in adress_diclist : 
+        overload_flag = False # 過負荷になっているかのフラグ
+        overload_list = [] # 過負荷の一時リストの初期化
+
+        processing_count = 0 # 何個目のqueryを処理しているか
+
+        ### adress の query listを取り出す
+        query_list = adress_diclist[adress]
+        for date, response in query_list : 
             processing_count += 1
 
             #### relate to overload
             if processing_count >= overload_judge_threshold : 
                 if overload_flag == True : 
-                    overload_flag = calculate_average_ping(server_query_list, processing_count)
+                    overload_flag = calculate_average_ping(query_list, processing_count)
                     if overload_flag == False : 
                         overload_end = date
                         overload_list.append([overload_start, overload_end])
                 else : 
-                    overload_flag = calculate_average_ping(server_query_list, processing_count)
+                    overload_flag = calculate_average_ping(query_list, processing_count)
                     overload_start = date
             
-            #### relate to timeout
+        overload_diclist[adress] = overload_list
+    show_the_term(adress_type, output_type, overload_diclist)
+
+
+## 故障の判定
+def deal_failure(adress_type, output_type, adress_diclist) : 
+    failure_diclist = {}
+    for adress in adress_diclist : 
+        failure_flag = False # 故障になっているかのフラグ
+        failure_list = [] # 故障の一時リストの初期化
+
+        timeout_count = 0 # タイムアウトが連続何個目か
+
+        ### adress の query listを取り出す
+        query_list = adress_diclist[adress]
+        for date, response in query_list : 
+
+            #### relate to failure
             if response == "-" : 
                 timeout_count += 1
                 if failure_flag : 
@@ -102,21 +126,25 @@ def deal_server(adress_type, server_adress_diclist) :
                     timeout_count = 0
                 else : 
                     pass
-        
-        failure_diclist[server_name] = failure_list
-        overload_diclist[server_name] = overload_list
-    show_the_term(adress_type, "failure", failure_diclist)
-    show_the_term(adress_type, "overload", overload_diclist)
+            
+        failure_diclist[adress] = failure_list
+    show_the_term(adress_type, output_type, failure_diclist)
 
-def calculate_average_ping(server_query_list, processing_count) : 
+
+## 平均のpingの計算
+def calculate_average_ping(query_list, processing_count) : 
     overload_flag = False
     valid_count = 0
     sum_val = 0
-    for date, response in server_query_list[processing_count-overload_judge_threshold:processing_count] : 
+    for date, response in query_list[processing_count-overload_judge_threshold:processing_count] : 
         if response != "-" : 
             sum_val += int(response)
             valid_count += 1
-    if sum_val/valid_count >= overload_bound : 
+    ### すべてのreponseが"-"のとき
+    if valid_count == 0 : 
+        pass
+
+    elif sum_val/valid_count >= overload_bound : 
         overload_flag = True
     #     print(sum_val/valid_count)
     #     print(date)
@@ -125,40 +153,55 @@ def calculate_average_ping(server_query_list, processing_count) :
     return overload_flag
 
 
-def show_the_term(adress_type, condition, tmp_diclist) : 
-    if condition == "failure" : 
+## 故障，過負荷期間の出力
+def show_the_term(adress_type, output_type, tmp_diclist) : 
+    if output_type == "failure" : 
         print("---------------------------")
-        print("server failure term")
-    elif condition == "overload" : 
+        print("FAILURE TERM")
         print("---------------------------")
-        print("server overload term")
+    elif output_type == "overload" : 
+        print("---------------------------")
+        print("OVERLOAD TERM")
+        print("---------------------------")
         
     if adress_type == "server adress" : 
-        name = "server name"
+        adress = "server adress"
     elif adress_type == "subnet" : 
-        name = "subet"
+        adress = "subnet"
     
     for key in tmp_diclist : 
-        print(name+":", key)
+        print(adress+":", key)
         for start, end in tmp_diclist[key] : 
             print(start, end)
-
 #--------------------------------------#
 
-
-########################################
-# definition
-def main() : 
-    log_list = input_log()
-    server_adress_diclist, subnet_diclist = arrange_log_list(log_list)
-    # deal_server("server adress", server_adress_diclist)
-    deal_server("subnet", subnet_diclist)
-
-#--------------------------------------#
-    
 
 ########################################
 # main
+def main() : 
+    log_list = input_log()
+    server_adress_diclist, subnet_diclist = arrange_log_list(log_list)
+    if adress_type == "server adress" : 
+        if output_type == "overload" : 
+            deal_overload(adress_type, output_type, server_adress_diclist)
+        elif output_type == "failure" : 
+            deal_failure(adress_type, output_type, server_adress_diclist)
+        else : 
+            print("output type error!")
+    elif adress_type == "subnet" : 
+        if output_type == "overload" : 
+            deal_overload(adress_type, output_type, subnet_diclist)
+        elif output_type == "failure" : 
+            deal_failure(adress_type, output_type, subnet_diclist)
+        else : 
+            print("output type error!")
+    else : 
+        print("adress type error!")
+#--------------------------------------#
+    
+
+########################################
+# introduction
 if __name__ == "__main__" : 
     main()
 #--------------------------------------#
