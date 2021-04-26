@@ -262,3 +262,44 @@ def show_the_term(adress_type, output_type, tmp_diclist) :
             print(start, end)
 ```
 
+
+
+## テストについて
+
+各設問とinput, outputが対応しています．例えば，設問1ならinput_1を使用してoutput_1を得ています．
+
+以下は各inputに対して最初の手動設定の部分をどのようにおいたかです．
+
+### input_1
+
+```python
+timeout_bound = 1 # 1～
+adress_type = "server adress" # server adress, subnet
+output_type = "failure" # failure, overload
+```
+
+### input_2
+
+```python
+timeout_bound = 2 # 1～
+adress_type = "server adress" # server adress, subnet
+output_type = "failure" # failure, overload
+```
+
+### input_3
+
+```python
+overload_judge_threshold = 3 # 1～
+overload_bound = 5 # 0～
+adress_type = "server adress" # server adress, subnet
+output_type = "overload" # failure, overload
+```
+
+
+### input_4
+
+```python
+timeout_bound = 2 # 1～
+adress_type = "subnet" # server adress, subnet
+output_type = "failure" # failure, overload
+```
